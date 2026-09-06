@@ -141,6 +141,20 @@
     .day-mood { position:absolute; right:5px; top:4px; font-size:13px; }
     .day-count { position:absolute; left:6px; bottom:5px; font-size:9px; color:var(--muted); }
 
+    .calendar-detail-head {
+      display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;
+    }
+    .calendar-date-mood { display:flex; align-items:center; gap:8px; min-width:0; }
+    .calendar-date-mood h2 { margin:0; }
+    .calendar-detail-mood { font-size:21px; line-height:1; }
+    .calendar-delete {
+      width:44px; height:44px; flex:none; display:inline-flex; align-items:center; justify-content:center;
+      border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--muted);
+    }
+    .calendar-delete:active { background:var(--surface2); }
+    .calendar-delete[hidden] { display:none; }
+    .calendar-delete svg { width:28px; height:32px; }
+
     label.field-label { display:block; margin-bottom:6px; color:var(--muted); font-size:11px; font-weight:800; }
     input[type=text],input[type=date],textarea,select {
       width:100%; min-height:44px; border:1px solid var(--line); border-radius:12px;
@@ -244,7 +258,20 @@
       <div class="calendar-grid" id="calGrid"></div>
     </div>
     <div class="card">
-      <h2 id="selectedTitle">この日の記録</h2>
+      <div class="calendar-detail-head">
+        <div class="calendar-date-mood">
+          <h2 id="selectedDateLabel">この日の記録</h2>
+          <span id="selectedJournalMood" class="calendar-detail-mood" aria-hidden="true"></span>
+        </div>
+        <button class="calendar-delete" type="button" id="selectedJournalDelete" aria-label="この日のJournalを削除" hidden>
+          <svg viewBox="0 0 28 32" aria-hidden="true">
+            <path d="M4.5 8h19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/>
+            <path d="M10.2 8V6.1c0-1 .8-1.8 1.8-1.8h4c1 0 1.8.8 1.8 1.8V8" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7.1 10.8l.75 11.2c.14 2.25 1.95 4 4.2 4h3.9c2.25 0 4.06-1.75 4.2-4l.75-11.2" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10.5 13v7.5M14 13v7.5M17.5 13v7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
       <div id="selectedContent"></div>
     </div>
   </section>
@@ -629,23 +656,7 @@
         <div class="log-date">今日の気分</div>
         <div style="font-size:22px;margin-bottom:8px">${existing.mood||"—"} <span style="font-size:12px">${esc(existing.moodLabel||"")}</span></div>
         <div class="journal-note">${esc(existing.text||"")}</div>
-        <div class="task-actions" style="margin-top:12px">
-          <button class="btn secondary small delete-btn" type="button" id="deleteTodayJournal">今日のJournalを削除</button>
-        </div>
       </div>` : `<div class="empty">まだ日報はありません。</div>`;
-
-    const deleteBtn=$("#deleteTodayJournal");
-    if(deleteBtn){
-      deleteBtn.addEventListener("click",()=>{
-        const target=data.journals.find(j=>j.date===todayISO());
-        if(!target)return;
-        if(confirm("今日のJournal（気分と日報）を削除しますか？")){
-          data.journals=data.journals.filter(j=>j.date!==todayISO());
-          persist();
-          renderAll();
-        }
-      });
-    }
   }
 
   function renderCalendar(){
@@ -668,13 +679,16 @@
   }
 
   function renderSelectedDate(){
-    $("#selectedTitle").textContent=`${jp(selectedDate)} の記録`;
     const j=data.journals.find(x=>x.date===selectedDate);
+    $("#selectedDateLabel").textContent=jp(selectedDate);
+    $("#selectedJournalMood").textContent=j?.mood||"";
+    $("#selectedJournalDelete").hidden=!j;
+
     const completed=data.tasks.flatMap(task=>task.subtasks.map(sub=>({task,sub}))).filter(x=>x.sub.completedAt===selectedDate);
     const notes=data.tasks.flatMap(task=>(task.progressNotes||[]).map(note=>({task,note}))).filter(x=>x.note.date===selectedDate);
     let html="";
     if(j){
-      html+=`<div class="log"><div class="log-date">Journal</div><div style="font-size:20px;margin-bottom:6px">${j.mood||"—"} <span style="font-size:11px">${esc(j.moodLabel||"")}</span></div>${j.text?`<div class="journal-note">${esc(j.text)}</div>`:""}</div>`;
+      html+=`<div class="log"><div class="log-date">Journal</div>${j.text?`<div class="journal-note">${esc(j.text)}</div>`:`<div class="muted" style="font-size:12px">気分のみ記録されています。</div>`}</div>`;
     }
     completed.forEach(x=>html+=`<div class="log"><div class="log-date">${esc(x.task.category)} ・ ${esc(x.task.title)}</div><div>✓ ${esc(x.sub.title)}</div></div>`);
     notes.forEach(x=>html+=`<div class="log"><div class="log-date">${esc(x.task.category)} ・ ${esc(x.task.title)} / 進捗メモ</div><div class="journal-note">${esc(x.note.text)}</div></div>`);
@@ -868,6 +882,16 @@
 
   $("#prevMonth").addEventListener("click",()=>{calendarDate=new Date(calendarDate.getFullYear(),calendarDate.getMonth()-1,1);renderCalendar();});
   $("#nextMonth").addEventListener("click",()=>{calendarDate=new Date(calendarDate.getFullYear(),calendarDate.getMonth()+1,1);renderCalendar();});
+  $("#selectedJournalDelete").addEventListener("click",()=>{
+    const journal=data.journals.find(j=>j.date===selectedDate);
+    if(!journal)return;
+    if(confirm(`${jp(selectedDate)}のJournal（気分と日報）を削除しますか？`)){
+      data.journals=data.journals.filter(j=>j.date!==selectedDate);
+      persist();
+      renderCalendar();
+      if(selectedDate===todayISO())renderJournal();
+    }
+  });
   $("#generatePrompt").addEventListener("click",generatePrompt);
   $("#copyPrompt").addEventListener("click",async()=>{
     const box=$("#promptBox");
