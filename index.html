@@ -629,7 +629,23 @@
         <div class="log-date">今日の気分</div>
         <div style="font-size:22px;margin-bottom:8px">${existing.mood||"—"} <span style="font-size:12px">${esc(existing.moodLabel||"")}</span></div>
         <div class="journal-note">${esc(existing.text||"")}</div>
+        <div class="task-actions" style="margin-top:12px">
+          <button class="btn secondary small delete-btn" type="button" id="deleteTodayJournal">今日のJournalを削除</button>
+        </div>
       </div>` : `<div class="empty">まだ日報はありません。</div>`;
+
+    const deleteBtn=$("#deleteTodayJournal");
+    if(deleteBtn){
+      deleteBtn.addEventListener("click",()=>{
+        const target=data.journals.find(j=>j.date===todayISO());
+        if(!target)return;
+        if(confirm("今日のJournal（気分と日報）を削除しますか？")){
+          data.journals=data.journals.filter(j=>j.date!==todayISO());
+          persist();
+          renderAll();
+        }
+      });
+    }
   }
 
   function renderCalendar(){
