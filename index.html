@@ -229,6 +229,19 @@ textarea{resize:vertical;min-height:92px}
     <button class="btn secondary small-btn" id="copyReview">コピー</button>
   </div>
   <div class="prompt" id="reviewPrompt">期間と目的を選んで生成してください。</div>
+
+  <div class="section-title"><h2>データ管理</h2></div>
+  <div class="card stack">
+    <div class="small muted" style="line-height:1.6">
+      この端末に保存されているタスク・プロジェクト・日報を、1つのJSONファイルとして保存できます。
+      バックアップデータは外部サービスには送信されません。
+    </div>
+    <button class="btn soft" id="exportBackup">バックアップを書き出す</button>
+    <button class="btn secondary" id="restoreBackup">バックアップから復元</button>
+    <div class="small muted" id="backupStatus" aria-live="polite"></div>
+  </div>
+
+  <input class="hidden" type="file" id="backupFileInput" accept=".json,application/json">
 </section>
 
 </div>
@@ -369,6 +382,23 @@ textarea{resize:vertical;min-height:92px}
     <div class="modal-actions">
       <button class="btn secondary" id="copyDailyPrompt">コピー</button>
       <button class="btn" data-close="dailyPromptWrap">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-wrap" id="restoreBackupWrap">
+  <div class="modal">
+    <h3>バックアップから復元</h3>
+    <div class="small muted" style="line-height:1.6">
+      復元すると、現在この端末に保存されているタスク・プロジェクト・日報を、
+      選択したバックアップの内容で上書きします。
+    </div>
+    <div class="notice" style="margin-top:12px">
+      現在のデータも残しておきたい場合は、先に「バックアップを書き出す」を実行してください。
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" data-close="restoreBackupWrap">キャンセル</button>
+      <button class="btn danger" id="chooseBackupFile">ファイルを選ぶ</button>
     </div>
   </div>
 </div>
@@ -1002,6 +1032,97 @@ async function copyText(text,button){
   }
 }
 
+function exportBackup(){
+  const payload={
+    format:"tsumiage-backup",
+    backupVersion:1,
+    appDataVersion:data.version||2,
+    exportedAt:new Date().toISOString(),
+    data
+  };
+
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`tsumiage-backup-${todayISO()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+
+  $("#backupStatus").textContent=`${jpFull(todayISO())}のバックアップを書き出しました。`;
+}
+
+function validateBackupData(candidate){
+  if(!candidate||typeof candidate!=="object")throw new Error("データ形式が正しくありません。");
+  if(!Array.isArray(candidate.tasks))throw new Error("タスクデータが見つかりません。");
+  if(!Array.isArray(candidate.projects))throw new Error("プロジェクトデータが見つかりません。");
+  if(!Array.isArray(candidate.journals))throw new Error("日報データが見つかりません。");
+  return true;
+}
+
+async function restoreBackupFile(file){
+  if(!file)return;
+
+  if(file.size>10*1024*1024){
+    alert("バックアップファイルが大きすぎます。10MB以下のJSONファイルを選択してください。");
+    return;
+  }
+
+  try{
+    const raw=await file.text();
+    const parsed=JSON.parse(raw);
+
+    let candidate;
+    if(parsed?.format==="tsumiage-backup"){
+      if(parsed.backupVersion!==1)throw new Error("このバックアップ形式にはまだ対応していません。");
+      candidate=parsed.data;
+    }else{
+      candidate=parsed;
+    }
+
+    validateBackupData(candidate);
+
+    const taskCount=candidate.tasks.length;
+    const projectCount=candidate.projects.length;
+    const journalCount=candidate.journals.length;
+
+    const ok=confirm(
+      `このバックアップを復元しますか？\n\n`+
+      `タスク：${taskCount}件\n`+
+      `プロジェクト：${projectCount}件\n`+
+      `日報：${journalCount}件\n\n`+
+      `現在のデータは上書きされます。`
+    );
+    if(!ok)return;
+
+    data=normalizeData(candidate);
+    persist();
+
+    editingTaskId=null;
+    completingTaskId=null;
+    deletingProjectId=null;
+    projectFilter="all";
+    taskFilter="all";
+    reorderContext=null;
+    selectedDay=todayISO();
+    calendarDate=new Date();
+    calendarDate=new Date(calendarDate.getFullYear(),calendarDate.getMonth(),1);
+
+    $$("[data-filter]").forEach(btn=>btn.classList.toggle("active",btn.dataset.filter==="all"));
+
+    renderAll();
+    $("#backupStatus").textContent="バックアップからデータを復元しました。";
+    alert("復元が完了しました。");
+  }catch(error){
+    console.error(error);
+    alert(`バックアップを復元できませんでした。\n${error.message||"ファイルを確認してください。"}`);
+  }finally{
+    $("#backupFileInput").value="";
+  }
+}
+
 function switchScreen(name){
   $$(".screen").forEach(s=>s.classList.toggle("active",s.dataset.screen===name));
   $$("[data-nav]").forEach(b=>b.classList.toggle("active",b.dataset.nav===name));
@@ -1157,6 +1278,19 @@ $("#reviewFrom").value=monthAgo;
 $("#reviewTo").value=today;
 $("#generateReview").onclick=()=>{$("#reviewPrompt").textContent=reviewPromptText()};
 $("#copyReview").onclick=()=>copyText($("#reviewPrompt").textContent,$("#copyReview"));
+
+$("#exportBackup").onclick=exportBackup;
+
+$("#restoreBackup").onclick=()=>show("restoreBackupWrap");
+
+$("#chooseBackupFile").onclick=()=>{
+  hide("restoreBackupWrap");
+  $("#backupFileInput").click();
+};
+
+$("#backupFileInput").onchange=event=>{
+  restoreBackupFile(event.target.files?.[0]);
+};
 
 $$("[data-close]").forEach(btn=>btn.onclick=()=>hide(btn.dataset.close));
 $$(".modal-wrap").forEach(w=>w.onclick=e=>{if(e.target===w)w.classList.remove("show")});
